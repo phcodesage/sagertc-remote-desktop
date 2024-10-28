@@ -5,23 +5,33 @@ const {
     ipcMain,
     Menu,
     powerMonitor,
-} = require('electron')
-const path = require('path')
-const robot = require('robotjs')
+  } = require('electron')
+  const path = require('path')
+  const robot = require('robotjs')
+  const ngrok = require('ngrok')
+  const cors = require('cors')
+  const express = require('express')
+  const expressApp = express()
+  const { screen } = require('electron')
+  
+  let availableScreens
+  let mainWindow
+  let clientSelectedScreen
+  let displays
 
-const cors = require('cors')
-const express = require('express');
-const expressApp = express();
-const { screen } = require('electron')
+  
+  const { createServer } = require('http')
+  const { Server } = require('socket.io')
+  
+  
+  // Initialize ngrok when the app starts
 
-let availableScreens
-let mainWindow
-let clientSelectedScreen
-let displays
-
-const { createServer } = require('http')
-const { Server } = require('socket.io')
-
+  
+  // Start ngrok before creating the window
+  app.on('ready', async () => {
+    createWindow()
+  })
+  
 expressApp.use(express.static(__dirname));
 
 expressApp.get('/', function (req, res, next) {
@@ -30,7 +40,11 @@ expressApp.get('/', function (req, res, next) {
 });
 
 expressApp.set('port', 4000)
-expressApp.use(cors({ origin: '*' }))
+expressApp.use(cors({
+    origin: ['http://localhost:4000', 'https://tetra-pleasant-utterly.ngrok-free.app'],
+    methods: ['GET', 'POST'],
+    credentials: true
+  }))
 
 expressApp.use(function (req, res, next) {
     // Website you wish to allow to connect
@@ -51,12 +65,19 @@ httpServer.listen(4000, '0.0.0.0')
 httpServer.on('error', e => console.log('error'))
 httpServer.on('listening', () => console.log('listening.....'))
 const io = new Server(httpServer, {
-    origin: '*',
-})
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+      credentials: true
+    },
+    path: '/socket.io'
+  })
+  
 
-const connections = io.of('/remote-ctrl')
-
-connections.on('connection', socket => {
+  const connections = io.of('/remote-ctrl')
+  connections.on('connection', socket => {
+    console.log('🔌 Remote control connection established:', socket.id)
+   
     console.log('connection established')
 
     socket.on('offer', sdp => {
@@ -156,7 +177,7 @@ const createWindow = () => {
         }
     })
 
-    mainWindow.loadURL('https://e8e6-2607-fea8-bde2-400-755b-a04e-53f6-19fa.ngrok.io/')
+    mainWindow.loadURL('http://localhost:4000/')
 
     mainWindow.once('ready-to-show', () => {
         displays = screen.getAllDisplays()
@@ -166,19 +187,24 @@ const createWindow = () => {
 
         desktopCapturer.getSources({
             types: ['screen']
-            // types: ['window', 'screen']
-        }).then(sources => {
+          }).then(sources => {
+            console.log('Available screens:', sources)
             sendSelectedScreen(sources[0])
             availableScreens = sources
             createTray()
-            // for (const source of sources) {
-            //     console.log(sources)
-            //     if (source.name === 'Screen 1') {
-            //         mainWindow.webContents.send('SET_SOURCE_ID', source.id)
-            //         return
-            //     }
-            // }
-        })
+          })
+          
+          const sendSelectedScreen = (item) => {
+            console.log('Sending screen to renderer:', item)
+            const displaySize = displays.filter(display => `${display.id}` === item.display_id)[0].size
+            console.log('Display size:', displaySize)
+            
+            mainWindow.webContents.send('SET_SOURCE_ID', {
+              id: item.id,
+              displaySize,
+            })
+          }
+          
     })
 
     mainWindow.webContents.openDevTools()
